@@ -35,7 +35,7 @@ class Server {
                 }
             }
         ];
-        this.serverProcess = null;
+        this.process = null;
         this.running = false;
 
         this.config = new Config();
@@ -108,15 +108,15 @@ class Server {
             this.stdin = await this.buildStream('read');
 
             //Spawn a child process and route the Standard Input, Output, and Error channels to this process' Standard Input, output, and error channels.
-            this.serverProcess = spawn(`${core}/run.sh`, [`+exec`, `./server.cfg`, `+set`, `gamename`, `rdr3`], {
+            this.process = spawn(`${core}/run.sh`, [`+exec`, `./server.cfg`, `+set`, `gamename`, `rdr3`], {
                 cwd: addons,
                 stdio: ['pipe', 'pipe', 'pipe']
             });
 
-            this.serverProcess.stdout.pipe(this.stdout);
-            this.stdin.pipe(this.serverProcess.stdin);
+            this.process.stdout.pipe(this.stdout);
+            this.stdin.pipe(this.process.stdin);
 
-            this.serverProcess.on('close', (code) => {
+            this.process.on('close', (code) => {
                 console.log(`child process exited with code ${code}`);
                 this.running = false;
             });
@@ -131,7 +131,7 @@ class Server {
     }
 
     stop() {
-        this.serverProcess.kill();
+        this.process.kill();
         this.running = false;
     }
 
@@ -244,7 +244,7 @@ class Server {
         }
     }
 
-    deleteFolderRecursive = function(Path) {
+    deleteFolderRecursive (Path) {
         if (fs.existsSync(Path)) {
           fs.readdirSync(Path).forEach((file, index) => {
             const curPath = path.join(Path, file);
@@ -256,13 +256,6 @@ class Server {
           });
           fs.rmdirSync(Path);
         }
-    };
-
-    currentResources() {
-        pidusage(this.serverProcess.pid, function( err, stats ){
-            console.log(`\r\nServer Resources:`);
-            console.log(`CPU Usage: ${Math.round(stats.cpu)}%\r\nMem Allocated: ${Math.round(stats.memory / 1048576)} MB`);
-        });
     }
 }
 

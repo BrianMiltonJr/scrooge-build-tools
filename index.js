@@ -9,7 +9,9 @@ const dbConfig = {
     database: 'scrooge'
 };
 
+//Our Object Instance of the server
 let server = null;
+//Do we want to output keypress data
 let showKeypresses = false;
 
 startWrapper();
@@ -22,11 +24,14 @@ function initialize() {
 async function startWrapper() {
     await initialize();
 
+    //Clear console and setup listener for keypresses
     console.clear();
     readline.emitKeypressEvents(process.stdin);
     process.stdin.setRawMode(true);
 
     process.stdin.on('keypress', async (key, data) => {
+
+        //Are we processing single keypresses
         if(process.stdin.isRaw) {
             console.clear();
             //Quits the application
@@ -96,44 +101,50 @@ async function startWrapper() {
         }
     });
 
+    //On actual data being sent to stdin listener
     process.stdin.on('data', function(data) {
-
         if(!process.stdin.isRaw) {
             let input = data.toString().trim();
 
-        //Attaches us back to the KeyPress Wrapper
-        if(input === "attach") {
-            console.clear();
-            process.stdin.setRawMode(true);
-            console.log("You have reattached to the wrapper successfully");
+            //Attaches us back to the KeyPress Wrapper
+            if(input === "attach") {
+                console.clear();
+                process.stdin.setRawMode(true);
+                console.log("You have reattached to the wrapper successfully");
 
-        //Sends something as input over to the server input
-        } else if(input === "close") {
-            server.stop();
-        } else if (input === "remove") {
-            let time = 2;
-            console.log(`Deletion will proceed in ${time} seconds. Please close this program by tapping q or ctrl + c to stop deletion from happening.`);
-            setTimeout(function(){server.remove()}, time*1000);
-        }else {
-            server.input(input);
-        }
+            //Sends something as input over to the server input
+            } else if(input === "close") {
+                server.stop();
+            } else if (input === "remove") {
+                let time = 2;
+                console.log(`Deletion will proceed in ${time} seconds. Please close this program by tapping q or ctrl + c to stop deletion from happening.`);
+                setTimeout(function(){server.remove()}, time*1000);
+            }else {
+                server.input(input);
+            }
         }
         
     });
 
-    
+    //Pay respect to Keanu
     console.log("Your breathtaking.");
     console.log('Press a key (Use H to see a help list)');
 }
 
 async function currentResources(options) {
-    pidusage(process.pid, function( err, stats ){
-        console.log(`Wrapper Resources:\r\nCPU Usage: ${Math.round(stats.cpu)}%\r\nMem Allocated: ${Math.round(stats.memory/1048576)} MB`);
-    });
-
+    let pids = [process.pid];
     if(server.running) {
-        server.currentResources();
+        pids.push(server.process.pid);
     }
+
+    pidusage(pids, function( err, stats ){
+
+        console.log(`Wrapper Resources:\r\nCPU Usage: ${Math.round(stats[pids[0]].cpu)}%\r\nMem Allocated: ${Math.round(stats[pids[0]].memory/1048576)} MB`);
+
+        if(stats.hasOwnProperty(pids[1])) {
+            console.log(`\r\nServer Resources:\r\nCPU Usage: ${Math.round(stats[pids[1]].cpu)}%\r\nMem Allocated: ${Math.round(stats[pids[1]].memory / 1048576)} MB`);
+        }
+    });
 }
 
 async function queryDb(query) {
