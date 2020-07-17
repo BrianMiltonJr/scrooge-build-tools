@@ -1,97 +1,59 @@
 const pidusage = require('pidusage');
-const mysql = require('promise-mysql');
 const readline = require('readline');
 const { Server } = require('./objects');
-const dbConfig = {
-    host: 'localhost',
-    user: 'root',
-    password: '12345',
-    database: 'scrooge'
-};
+
+let detachMode = "server";
 
 //Our Object Instance of the server
-let server = null;
+let server = new Server();
 //Do we want to output keypress data
 let showKeypresses = false;
 
+const keyPresses = {
+    'ctrl': {
+        'c': [ () => { close(); }, "Closes the program" ],
+        'z': [ () => { console.log('Detached from UI'); process.stdin.setRawMode(false); }, "Detaches you from this wrapper to pass input along to other programs ran under this process!" ],
+        't': [ () => { test(); }, "Runs my Test Commands" ]
+    },
+    'normal': {
+        'r': [ () => { server.emit('run'); }, "Runs the server" ],
+        'q': [ () => { close(); }, "Closes the program" ],
+        'b': [ () => { server.emit('build'); }, "Builds the server" ],
+        'k': [ () => { showKeypresses = !showKeypresses; console.log(`Keypresses printed to stdin: ${showKeypresses}`); }, "Starts printing keypress information to console" ],
+        'h': [ () => { help(); }, "Prints the Help screen" ],
+        'f2': [ () => { server.emit('output'); }, "Prints server output" ],
+        'f9': [ () => { console.clear(); }, "Clears console" ],
+        'f12': [ () => { currentResources(); }, "Prints the current resources to console" ],
+        'end': [ () => { console.log(server); }, "Prints Server Variable to console" ],
+        'down': [ () => { console.log(server.addons); }, "Prints Config Variable to console" ],
+        'pagedown': [ () => { console.log(server.config); }, "Prints Config Variable to console" ],
+        'home': [ () => { console.log('Detach mode set to Server'); detachMode = "server"; }, "Sets the Detach mode to Server" ],
+        'up': [ () => { console.log('Detach mode set to Addons'); detachMode = "addon"; }, "Sets the Detach mode to Addons" ],
+
+    }
+}
 startWrapper();
 
-function initialize() {
-    console.log("Bootstrapping Server");
-    server = new Server();
-}
-
-async function startWrapper() {
-    await initialize();
-
+function startWrapper() {
+    server.emit('setup');
     //Clear console and setup listener for keypresses
-    console.clear();
+    //console.clear();
     readline.emitKeypressEvents(process.stdin);
     process.stdin.setRawMode(true);
 
+    //On Keypress
     process.stdin.on('keypress', async (key, data) => {
 
         //Are we processing single keypresses
         if(process.stdin.isRaw) {
             console.clear();
-            //Quits the application
-            if (data.ctrl && data.name === 'c' || data.name === 'q') {
-                console.log(`You're still breathtaking.`);
-                process.exit();
 
-            //Builds the Servers
-            } else if(data.name === 'b') {
-                console.log('Beginning Build Process of Server');
-                server.build();
+            let type = data.ctrl? 'ctrl' : 'normal';
 
-            //Enables Keypress Debug Diagnostic
-            } else if(data.name === 'k') { 
-                showKeypresses = !showKeypresses;
-                console.log(`Keypresses printed to stdin: ${showKeypresses}`);
-
-            //Prints out Server Memory Buffer
-            } else if(data.name === 'f2') {
-                console.log(server.output());
-            
-            //Prints current resources
-            }else if(data.name === 'f12') {
-                currentResources({mem: "GB"});
-
-            //Runs the Server
-            } else if(data.name === 'r') {
-                server.run();
-
-            //Detaches stdin from running here and breing
-            } else if (data.ctrl && data.name === 'z') {
-                console.log('Detached from UI');
-                process.stdin.setRawMode(false);
-
-            //Clears the console
-            } else if(data.name === 'f9') {
-                console.clear();
-
-            //Prints help when unrecognized command is used
-            } else if(data.name === 'h') {
-                let commands = [
-                    ['q', 'ctrl + c', 'Closes the application'],
-                    ['b', 'Builds the server'],
-                    ['r', 'Runs the server'],
-                    ['k', 'Prints which key was pressed'],
-                    ['ctrl + z', 'Detaches you from this wrapper to pass input along to other programs ran under this process!'],
-                    ['F9', 'Clears console']
-                ];
-
-                console.log('Current Commands:');
-                for(let index = 0; index < commands.length; index++) {
-                    let command = commands[index];
-                    let description = command[command.length-1];
-                    command.pop();
-
-                    console.log(`${command.join(", ")}  -   ${description}`);
-                }
-            } else {
-                console.log('Unknown keypress.');
-            }
+            if(keyPresses[type].hasOwnProperty(data.name))
+                keyPresses[type][data.name][0]();
+            else
+                console.log('Unknown command');
 
             if(showKeypresses) {
                 console.log(key, data);
@@ -113,14 +75,12 @@ async function startWrapper() {
                 console.log("You have reattached to the wrapper successfully");
 
             //Sends something as input over to the server input
-            } else if(input === "close") {
-                server.stop();
-            } else if (input === "remove") {
-                let time = 2;
-                console.log(`Deletion will proceed in ${time} seconds. Please close this program by tapping q or ctrl + c to stop deletion from happening.`);
-                setTimeout(function(){server.remove()}, time*1000);
-            }else {
-                server.input(input);
+            } else {
+                if(detachMode === "server") {
+                    serverCommands(input);
+                } else if(detachMode === "addon") {
+                    addonComands(input);
+                }
             }
         }
         
@@ -129,6 +89,44 @@ async function startWrapper() {
     //Pay respect to Keanu
     console.log("Your breathtaking.");
     console.log('Press a key (Use H to see a help list)');
+}
+
+function serverCommands(input) {
+    if(input === "close") {
+        server.emit('stop');
+    } else if (input === "remove") {
+        let time = 2;
+        console.log(`Deletion will proceed in ${time} seconds. Please close this program by tapping q or ctrl + c to stop deletion from happening.`);
+        setTimeout(function(){server.emit('remove')}, time*1000);
+    } else {
+        server.input(input);
+    }
+}
+
+function addonComands(input) {
+    let args = input.split(" ");
+
+    if(args[0] === "install") {
+        server.addons.emit('install', args[1], args[2]);
+    } else if(args[0] === "remove") {
+        server.config.emit("remove", args[1], args[2]);
+    } else if(args[0] === "sync") {
+        server.config.addons.emit('resyncAnnex');
+    } 
+}
+
+function help(){
+    let modifiers = ['ctrl', 'normal'];
+
+    console.log('Current commands:');
+
+    for(let i = 0; i < modifiers.length; i++) {
+        let keys = Object.keys(keyPresses[modifiers[i]]);
+
+        for(let j = 0; j < keys.length; j++) {
+            console.log(`${keys[j]} - ${keyPresses[modifiers[i]][keys[j]][1]}`);
+        }
+    }
 }
 
 async function currentResources(options) {
@@ -147,16 +145,14 @@ async function currentResources(options) {
     });
 }
 
-async function queryDb(query) {
-    let connection;
-    let result;
+function close() {
+    if(server.running)
+        server.emit('stop');
+    
+    console.log(`You're still breathtaking.`);
+    process.exit();
+}
 
-    try {
-        connection = await mysql.createConnection(dbConfig);
-        result = await connection.query(query);
-    } finally {
-        if(connection && connection.end) connection.end();
-    }
-
-    return result;
+async function test(){
+    server.config.emit('write');
 }
