@@ -1,17 +1,17 @@
 const Config = require('./config_control.js').ConfigControl;
+const Addons = require('./addons.js').addons;
+const Helper = new require('./helper').helper;
 const { spawn }  = require('child_process');
 const path = require('path');
 const NodeGit = require("nodegit");
 const fs = require('fs');
-const tar = require('tar');
-const http = require('http');
-const https = require('https');
-const xz = require('xz');
-const streams = require('memory-streams');
-const pidusage = require('pidusage');
+const EventEmitter = require('events');
 
-class Server {
+class Server extends EventEmitter{
     constructor(){
+        super();
+        EventEmitter.call(this);
+
         this.game = "RedM";
         this.version = "2431";
         this.buildables = [
@@ -26,31 +26,48 @@ class Server {
                 method: "git clone"
             }
         ];
-        this.addons = [
-            {
-                1: {
-                    title: "Redem",
-                    version: "0.2.1",
-                    location: "https://codeload.github.com/kanersps/redem/tar.gz/0.2.1"
-                }
-            }
-        ];
+
         this.process = null;
         this.running = false;
+        this.exists = fs.existsSync(`${path.resolve(__dirname, '..')}/server-core`);
 
+        this.addons = new Addons();
         this.config = new Config();
 
         this.stdin = null;
         this.stdout = null;
+
+        if(this.exists) {
+            this.addons.emit('setup');
+            this.config.emit('read');
+        } else {
+            this.addons.emit('resyncAnnex');
+            this.config.emit('fresh');
+        }
+
+        this.once('setup', this.setup);
+        this.on('run', this.run);
+        this.on('build', this.build);
+        this.on('stop', this.stop);
+        this.on('input', this.input);
+        this.on('output', this.output);
+        this.on('remove', this.remove);
+    }
+
+    setup() {
+        this.addons.emit('postSetup', this.config.ensure);
     }
 
     async build(){
+        if(this.exists)
+            return null;
+
         let core = `${path.resolve(__dirname, '..')}/server-core`;
         let addons = `${path.resolve(__dirname, '..')}/server-addons`;
         
         console.log("Creating Server Base Directories")
-        this.directoryExists(core);
-        this.directoryExists(addons);
+        Helper.createDir(core);
+        Helper.createDir(addons);
 
         try {
             for(let a=0; a < this.buildables.length; a++) {
@@ -60,7 +77,7 @@ class Server {
 
                 switch(buildable.method) {
                     case "tar":
-                        let tarResp = await this.generateRequest(buildable.location, core, false);
+                        let tarResp = await Helper.generateRequest(buildable.location, core, false);
 
                         if(!tarResp) {
                             console.error(tarResp)
@@ -69,7 +86,7 @@ class Server {
                     break;
 
                     case "tar xz":
-                        let tarXzResp = await this.generateRequest(buildable.location, core);
+                        let tarXzResp = await Helper.generateRequest(buildable.location, core);
 
                         if(!tarXzResp) {
                             console.error(tarXzResp)
@@ -84,13 +101,14 @@ class Server {
                 }
             }
 
+            console.log(`\r\nWriting config.`);
+            this.config.emit('write');
+
             console.log(`\r\nFinished building server.`);
-            console.log(`Writing config.`);
-            this.config.write(`${path.resolve(__dirname, '..')}/server-addons/server.cfg`);
+            this.exists = true;
         } catch (err) {
             console.error(err);
         }
-
     }
 
     async run() {
@@ -100,12 +118,12 @@ class Server {
         }
         let core = `${path.resolve(__dirname, '..')}/server-core`;
         let addons = `${path.resolve(__dirname, '..')}/server-addons`;
-        
+
         console.log("Starting Server");
-    
+
         try {
-            this.stdout = await this.buildStream('write');
-            this.stdin = await this.buildStream('read');
+            this.stdout = await Helper.buildStream('write');
+            this.stdin = await Helper.buildStream('read');
 
             //Spawn a child process and route the Standard Input, Output, and Error channels to this process' Standard Input, output, and error channels.
             this.process = spawn(`${core}/run.sh`, [`+exec`, `./server.cfg`, `+set`, `gamename`, `rdr3`], {
@@ -122,17 +140,17 @@ class Server {
             });
 
             this.running = true;
-
-            //Wait here till exit.
-            //await onExit(serverProcess);
         } catch (err) {
             console.error(err);
         }
     }
 
     stop() {
+        this.config.emit('write');
         this.process.kill();
         this.running = false;
+        this.stdin = null;
+        this.stdout = null;
     }
 
     input(command) {
@@ -148,114 +166,15 @@ class Server {
     }
 
     remove() {
+        if(this.running) {
+            console.log("Closing and flushing object state of server");
+            stop();
+            this.config = new Config();
+        }
         console.log("Beginning to remove Server Directories and files permanently.")
-        this.deleteFolderRecursive(`${path.resolve(__dirname, '..')}/server-core`);
-        this.deleteFolderRecursive(`${path.resolve(__dirname, '..')}/server-addons`);
+        Helper.deleteFolderRecursive(`${path.resolve(__dirname, '..')}/server-core`);
+        Helper.deleteFolderRecursive(`${path.resolve(__dirname, '..')}/server-addons`);
         console.log("Deletion Complete");
-    }
-
-    generateRequest(location, cwd, uncompress = true) {
-        let schema = location.split(":");
-        const options = {
-            method: "GET",
-            path: schema[1]
-        }
-
-        if(schema[0] === "http") {
-            return new Promise ((resolve, reject) => {
-                try {
-                    const compression = new xz.Decompressor();
-                    const req = http.get(location, function(response) {
-                        if (uncompress) {
-                            response.pipe(compression).pipe(tar.x({
-                                cwd: cwd, sync: true
-                            }));
-                        } else {
-                            response.pipe(tar.x({
-                                cwd: cwd, sync: true
-                            }));
-                        }
-                    });
-
-                    req.on('finish', () => {
-                        console.log("Download/Unpacking Finished");
-                        resolve(true);
-                    });
-                } catch(err) {
-                    reject(err);
-                }
-            });
-        } else if(schema[0] === "https") {
-            return new Promise ((resolve, reject) => {
-                try {
-                    const compression = new xz.Decompressor();
-                    const req = https.get(location, function(response) {
-                        if (uncompress) {
-                            response.pipe(compression).pipe(tar.x({
-                                cwd: cwd, sync: true
-                            }));
-                        } else {
-                            response.pipe(tar.x({
-                                cwd: cwd, sync: true
-                            }));
-                        }
-                    });
-
-                    req.on('end', () => {
-                        console.log(`${location} finished downloading and unpacking`);
-                        resolve(true);
-                    });
-                } catch(err) {
-                    reject(err);
-                }
-            });
-        }
-    }
-
-    buildStream(type) {
-        if(type === "read") {
-            return new Promise( (resolve, reject) => {
-                try {
-                    let stream = new streams.ReadableStream('');
-                    
-                    resolve(stream);
-                } catch(err) {
-                    reject(err);
-                }
-            });
-        } else if(type === "write") {
-            return new Promise( (resolve, reject) => {
-                try {
-                    let stream = new streams.WritableStream();
-
-                    resolve(stream);
-                } catch(err) {
-                    reject(err);
-                }
-            });
-        }
-    }
-
-    directoryExists(directory) {  
-        try {
-          fs.statSync(directory);
-        } catch(e) {
-          fs.mkdirSync(directory, {recursive: true});
-        }
-    }
-
-    deleteFolderRecursive (Path) {
-        if (fs.existsSync(Path)) {
-          fs.readdirSync(Path).forEach((file, index) => {
-            const curPath = path.join(Path, file);
-            if (fs.lstatSync(curPath).isDirectory()) { // recurse
-              this.deleteFolderRecursive(curPath);
-            } else { // delete file
-              fs.unlinkSync(curPath);
-            }
-          });
-          fs.rmdirSync(Path);
-        }
     }
 }
 
