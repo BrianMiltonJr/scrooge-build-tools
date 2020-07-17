@@ -1,34 +1,38 @@
 const fs = require('fs');
-const linereader = require('line-reader');
-const lineByLine = require('n-readlines');
 const path = require('path');
+const EventEmitter = require('events');
 
-class ConfigControl {
+class ConfigControl extends EventEmitter{
 
-    constructor(file = null) {
-        if (file === null) {
-            this.ensure = [
-                'spawnmanager',
-                'mapmanager',
-                'basic-gamemode'
-            ];
-    
-            this.tags = [
-                'default',
-                'roleplay'
-            ];
-    
-            this.locale = 'en-US';
-            this.hostname = 'FXServer, but unconfigured';
-            this.maxclients = 32;
-            this.steamWebApi = "";
-            this.licenseKey = "9071p30mwx2o3tm5tll6liqhxbllusbi";
-            this.ip = "0.0.0.0";
-            this.port = "30120";
-        } else {
-            this.ensure = [];
-            this.read(file);
-        }
+    constructor() {
+        super();
+        EventEmitter.call(this);
+
+        this.on('read', this.read);
+        this.on('write', this.write);
+        this.on('fresh', this.fresh);
+        this.on('enableAddon', this.enableAddon);
+    }
+
+    fresh() {
+        this.ensure = [
+            'spawnmanager',
+            'mapmanager',
+            'basic-gamemode'
+        ];
+
+        this.tags = [
+            'default',
+            'roleplay'
+        ];
+
+        this.locale = 'en-US';
+        this.hostname = 'FXServer, but unconfigured';
+        this.maxclients = 32;
+        this.steamWebApi = "";
+        this.licenseKey = "9071p30mwx2o3tm5tll6liqhxbllusbi";
+        this.ip = "0.0.0.0";
+        this.port = "30120";
     }
 
     async read(file = `${path.resolve(__dirname, '..')}/server-addons/server.cfg`) {
@@ -94,6 +98,8 @@ class ConfigControl {
     }
 
     write(file = `${path.resolve(__dirname, '..')}/server-addons/server.cfg`) {
+        if(fs.existsSync(file))
+            fs.unlinkSync(file);
         let writer = fs.createWriteStream(file);
 
         writer.write(`endpoint_add_tcp "${this.ip}:${this.port}"\r\n`);
@@ -116,7 +122,7 @@ class ConfigControl {
         writer.close();
     }
 
-    ensure(command, addon) {
+    enableAddon(command, addon) {
         let found = null;
         for(let index = 0; index < this.ensure.length; index ++){
             if(this.ensure[index] === addon) {
@@ -126,13 +132,15 @@ class ConfigControl {
 
         if(command === 'add') {
             if (found === null) {
-                this.ensure.append(addon)
+                this.ensure.push(addon);
             }
         } else {
             if (found !== null) {
-                this.ensure = this.ensure.splice(found, 1)
+                this.ensure.splice(found, 1);
             }
         }
+
+        this.emit('write');
     }
 
     tags(command, tag) {
@@ -169,10 +177,6 @@ class ConfigControl {
             }
             return string;
         }
-    }
-
-    setConfigValue(key, value) {
-        this[key] = value;
     }
 }
 
