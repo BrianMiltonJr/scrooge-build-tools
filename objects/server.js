@@ -6,6 +6,7 @@ const path = require('path');
 const NodeGit = require("nodegit");
 const fs = require('fs');
 const EventEmitter = require('events');
+const ChatPacker = require('./chat_packer').ChatPacker;
 
 class Server extends EventEmitter{
     constructor(){
@@ -131,7 +132,7 @@ class Server extends EventEmitter{
                 stdio: ['pipe', 'pipe', 'pipe']
             });
 
-            this.process.stdout.pipe(this.stdout);
+            this.process.stdout.pipe(new ChatPacker()).pipe(this.stdout);
             this.stdin.pipe(this.process.stdin);
 
             this.process.on('close', (code) => {
