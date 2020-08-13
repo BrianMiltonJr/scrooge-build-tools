@@ -17,10 +17,30 @@ class addons extends EventEmitter{
         this.once('postSetup', this.postSetup)
         this.on('resyncAnnex', this.resyncAnnex);
         this.on('readInstalled', this.readInstalled);
-        this.on('enable', this.enable);
-        this.on('disable', this.disable);
-        this.on('install', this.install);
-        this.on('remove', this.remove);
+        this.on('input', this.input);
+    }
+
+    input(str) {
+        let struct = str.split(" ");
+
+        let commands = {
+            3: ['install', 'remove', 'disable', 'enable']
+        }
+
+        if(Object.keys(commands).includes(String(struct.length))) {
+            if(commands[struct.length].includes(struct[0])) {
+                let addon = this.find(struct[1], struct[2]);
+                if(addon === null) {
+                    console.log('Addon does not exist, check key, value');
+                    return null;
+                }
+                this[struct[0]](addon);
+            }
+        } else {
+            console.log('Improper Syntax');
+            return null;
+        }
+        
     }
 
     postSetup(enabledAddons) {
@@ -38,14 +58,18 @@ class addons extends EventEmitter{
 
         for(let i = 0; i < addons.length; i++) {
             let addon = addons[i];
-            let keys = Object.keys(addon);
             annex[addon.id] = addon;
         }
         this.annex = annex;
     }
 
     readInstalled() {
-        this.installed = fs.readdirSync(`${path.resolve(__dirname, '..')}/server-addons/resources/[local]`);
+        let installed = fs.readdirSync(`${path.resolve(__dirname, '..')}/server-addons/resources/[local]`);
+        for(let i = 0; i < installed.length; i++) {
+            if(installed[i] !== ".gitkeep")
+                this.installed.push(installed[i]);
+        }
+        
     }
 
     find(key, value) {
@@ -69,39 +93,21 @@ class addons extends EventEmitter{
         return null;
     }
 
-    isEnabled(id) {
-        return this.enabled.includes(id);
-    }
-
-    enable(key, value) {
-        let addon = this.find(key, value);
-
-        if(addon === null)
-            return null;
-
-        if(!this.isEnabled(addon.id))
-            this.enabled.push(addon.id);
-    }
-
-    disable(key, value) {
-        let addon = this.find(key, value);
-
-        if(addon === null)
-            return null;
-
-        if(this.isEnabled(addon.id)){
-            let index;
-            for(let i = 0; i < this.enabled.length; i++) {
-                if(this.enabled === addon.id)
-                    index = i;
-            }
-
-            this.enabled.splice(index, 1);
-        }
+    isEnabled(addon) {
+        return this.enabled.includes(addon.title);
     }
 
     isInstalled(addon) {
+        return this.installed.includes(addon.title);
+    }
 
+    uninstall(addon) {
+        if(this.isInstalled(addon)) {
+            this.installed.splice(this.installed.indexOf(addon.title), 1);
+        }
+    }
+
+    dirExists(addon) {
         let directories = fs.readdirSync(`${path.resolve(__dirname, '..')}/server-addons/resources/[local]`);
 
         for(let i = 0; i < directories.length; i++) {
@@ -109,17 +115,13 @@ class addons extends EventEmitter{
                 return true;
         }
 
-        return false;q
+        return false;
     }
 
-    async install(key, value) {
-        let addon = this.find(key, value);
-        if(addon === null)
-            return "could not find addon";
-
+    async install(addon) {
         let home = `${path.resolve(__dirname, '..')}/server-addons/resources/[local]`;
       
-        if(this.isInstalled(addon)) {
+        if(this.dirExists(addon)) {
             console.log(`${addon.title} is already installed`);
         } else {
             console.log(`Starting installion of ${addon.title}`);
@@ -135,23 +137,39 @@ class addons extends EventEmitter{
         }
     }
 
-    async remove(key, value) {
-        let addon = this.find(key, value);
-        if(addon === null)
-            return "could not find addon";
-            
+    async remove(addon) {
         let home = `${path.resolve(__dirname, '..')}/server-addons/resources/[local]`;
 
-        if(this.isInstalled(addon)) {
+        if(!this.isInstalled(addon)) {
             console.log(`${addon.title} is not installed`);
-            return [false, addon.title];
+            return false;
          } else {
-            Helper.deleteFolderRecursive(`${home}/${exists[1]}`);
-            console.log(`${exists[1]} has been removed successfully`);
-            this.disable(key, value);
-            return [true, exists[1]];
+            Helper.deleteFolderRecursive(`${home}/${addon.title}`);
+            console.log(`${addon.title} has been removed successfully`);
+            this.disable(addon);
+            this.uninstall(addon);
+            return true;
          }
     }
+
+    enable(addon) {
+        if(!this.isEnabled(addon)) {
+            this.enabled.push(addon.title);
+            console.log(`${addon.title} has been enabled`);
+        } else {
+            console.log(`${addon.title} is already been enabled`);
+        }
+    }
+
+    disable(addon) {
+        if(this.isEnabled(addon)){
+            this.enabled.splice(this.enabled.indexOf(addon.title), 1);
+            console.log(`${addon.title} has been disabled`);
+        } else {
+            console.log(`${addon.title} is already disabled`);
+        }
+    }
+
 }
 
 exports.addons = addons;
