@@ -172,6 +172,33 @@ class Helper {
         
     }
 
+    static buffFindChar(buffer, target) {
+        let locs = [this.buffIncludes(buffer, target)];
+        if(locs[0] === false)
+            return false;
+        
+        let j = buffer.lastIndexOf(target);
+        if(locs[0] === j)
+            return locs;
+        
+        for(let i = locs[0]+1; i < j; i++) {
+            if(buffer[i] === target)
+                locs.push(i);
+        }
+
+        return locs;
+    }
+
+    static buffIncludes(buffer, target) {
+        let j = Buffer.byteLength(buffer);
+        for(let i = 0; i < j; i++) {
+            if(buffer[i] === target) {
+                return i
+            }
+        }
+        return false;
+    }
+
     static buildStream(type) {
         if(type === "read") {
             return new Promise( (resolve, reject) => {
